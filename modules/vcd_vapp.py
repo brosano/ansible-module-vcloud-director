@@ -1,5 +1,5 @@
 # Copyright © 2018 VMware, Inc. All Rights Reserved.
-# SPDX-License-Identifier: BSD-2-Clause
+# SPDX-License-Identifier: BSD-2-Clause OR GPL-3.0-only
 
 # !/usr/bin/python
 
@@ -177,7 +177,7 @@ from ansible.module_utils.vcd import VcdAnsibleModule
 from pyvcloud.vcd.exceptions import EntityNotFoundException, OperationNotSupportedException
 
 VAPP_VM_STATES = ['present', 'absent']
-VAPP_VM_OPERATIONS = ['poweron', 'poweroff', 'deploy', 'undeploy', 'list_vms', 'list_networks']
+VAPP_VM_OPERATIONS = ['poweron', 'poweroff', 'deploy', 'undeploy', 'list_vms', 'list_networks', 'shutdown']
 
 VM_STATUSES = {'3': 'SUSPENDED', '4': 'POWERED_ON', '8': 'POWERED_OFF'}
 
@@ -234,6 +234,9 @@ class Vapp(VcdAnsibleModule):
 
         if state == "poweroff":
             return self.power_off()
+
+        if state == "shutdown":
+            return self.shutdown()
 
         if state == "deploy":
             return self.deploy()
@@ -403,6 +406,27 @@ class Vapp(VcdAnsibleModule):
 
         return response
 
+    def shutdown(self):
+        vapp_name = self.params.get('vapp_name')
+        response = dict()
+        response['changed'] = False
+
+        vapp = self.get_vapp()
+        try:
+            if not vapp.is_powered_off():
+                vapp_resource = self.vdc.get_vapp(vapp_name)
+                vapp = VApp(self.client, name=vapp_name, resource=vapp_resource)
+                shutdown_vapp_task = vapp.shutdown()
+                self.execute_task(shutdown_vapp_task)
+                response['msg'] = 'Vapp {} has been shutted down.'.format(vapp_name)
+                response['changed'] = True
+            else:
+                response['warnings'] = 'Vapp {} is already powered off.'.format(vapp_name)
+        except OperationNotSupportedException:
+            response['warnings'] = 'Operation is not supported. You may have no VM(s) in {}'.format(vapp_name)
+
+        return response
+
     def deploy(self):
         vapp_name = self.params.get('vapp_name')
         response = dict()
@@ -427,15 +451,15 @@ class Vapp(VcdAnsibleModule):
         response['changed'] = False
 
         vapp = self.get_vapp()
-        if vapp.is_deployed():
+        if vapp.is_powered_on():
             vapp_resource = self.vdc.get_vapp(vapp_name)
             vapp = VApp(self.client, name=vapp_name, resource=vapp_resource)
-            undeploy_vapp_task = vapp.undeploy()
+            undeploy_vapp_task = vapp.undeploy(action="shutdown")
             self.execute_task(undeploy_vapp_task)
             response['msg'] = 'Vapp {} has been undeployed.'.format(vapp_name)
             response['changed'] = True
         else:
-            response['warnings'] = 'Vapp {} is already undeployed.'.format(vapp_name)
+            response['warnings'] = 'Vapp {} is not powered on.'.format(vapp_name)
 
         return response
 
